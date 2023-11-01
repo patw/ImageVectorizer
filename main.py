@@ -5,8 +5,19 @@ from sklearn.preprocessing import normalize
 import numpy
 from scipy.spatial.distance import euclidean
 import torch
+from torchvision.models.detection import fasterrcnn_resnet50_fpn
+from torchvision.transforms import functional as F
 import requests
 from io import BytesIO
+import json
+
+# Load in resnet image labeling model
+resnet = fasterrcnn_resnet50_fpn(pretrained=True)
+resnet.eval()
+
+# Load COCO labels mapping for resnet50 to do image labeling
+with open('cocolabels.json', 'r') as f:
+    coco_labels = json.load(f)
 
 app = FastAPI()
 
@@ -52,6 +63,23 @@ def similarity(v1, v2):
 def l2_norm(tensor_data):
     l2_norm = torch.norm(tensor_data, p=2)
     return tensor_data / l2_norm
+
+# Extracts image labels from a PIL image using resnet50 and the COCO labels
+def get_image_labels(image):
+    # Convert image to tensor first
+    image = F.to_tensor(image)
+    image = image.unsqueeze(0)
+
+    # Create the predictions on the tensor
+    with torch.no_grad():
+        predictions = resnet(image)
+    labels = predictions[0]['labels'].tolist()
+
+    # Match the COCO labels with the labels list
+    captions = []
+    for label in labels:
+        captions.append(coco_labels[str(label)])
+    return list(set(captions))
 
 # CLIP Text Embedding
 def get_clip_text_embedding(text):
@@ -130,3 +158,16 @@ async def text_upload_image_similarity(text: str, image_url: str):
     v1 = get_clip_text_embedding(text)
     v2 = get_clip_image_embedding(image)
     return similarity(v1,v2)
+
+# Endpoint for image labeling of uploaded images
+@app.post("/upload_image_labels")
+async def upload_image_labels(image: UploadFile):
+    image = Image.open(image.file)
+    return get_image_labels(image)
+
+# Endpoint for image labeling of URL images
+@app.post("/url_image_labels")
+async def upload_image_labels(image_url: str):
+    request = requests.get(image_url)
+    image = Image.open(BytesIO(request.content))
+    return get_image_labels(image)
