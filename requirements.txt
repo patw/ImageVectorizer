@@ -5,6 +5,7 @@ fastapi
 uvicorn
 transformers
 torch
+torchvision
 python-multipart
 pillow
 scikit-learn
